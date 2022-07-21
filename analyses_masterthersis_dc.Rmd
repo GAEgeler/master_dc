@@ -1,0 +1,545 @@
+---
+title: "Analyses master thesis: David Crameri"
+date: "07/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load data
+source("R/load_data.R")
+source("R/mytheme.R")
+
+#packages
+library(stringr)
+library(ggplot2)
+library(wesanderson)
+
+```
+
+
+```{r check out data, include=FALSE}
+
+#check data structure
+glimpse(data)  
+
+
+#fehlende_zahne_fdi
+sort(unique(data$fehlender_zahn_fdi_quadrant_zahnzahl))
+
+
+```
+
+
+
+### sample description (n = 622)
+
+```{r sample description}
+
+# plot gender
+data %>% 
+  filter(!duplicated(ID)) %>% 
+  group_by(gschlecht_m_w) %>% 
+  summarise(tot = n()) %>% 
+  mutate(pct = tot / sum(tot)) %>% 
+  ungroup() %>% 
+  mutate(gender = if_else(gschlecht_m_w == "m", "Männlich", "Weiblich")) %>% 
+  mutate(xlab_1 = paste0("(n = ", tot, ")"),
+         xlab = paste(gender, xlab_1, sep = "\n")) -> dp
+
+
+#print df
+print(dp)
+
+
+#plot
+p <- ggplot(data = dp, 
+       aes(x = xlab, y = pct, fill = gender)) +
+  geom_bar(stat = "identity", width = .6) +
+  labs(x = "", y = "Geschlecht in Prozent") + # does dot sound right?
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = wes_palette("Royal2")) +
+  guides(fill = "none") + # check for further info: https://ggplot2.tidyverse.org/reference/guide_legend.html
+  geom_text(label = scales::percent(dp$pct, accuracy = 1), size = 8, position = position_stack(vjust = .5)) +
+  mytheme
+
+print(p)
+
+#save plot
+ggsave(filename = here::here("output/plots/202207_overall_sample_gender.pdf"),
+       plot = p,
+       width = 6,
+       height = 6,
+       dpi = 300,
+       device = cairo_pdf
+)
+
+
+#age at operation
+data %>% 
+  filter(!duplicated(ID)) -> dp
+psych::describe(dp$alter_beim_opt)
+
+#unique persons in sample
+sum(!duplicated(data$ID))
+
+```
+
+### FF1: final sample description (n = 563)
+
+```{r}
+
+#1. gender
+# extractet cases were eliminated (n = 9): #is that correct @david?
+data %>% 
+  #no duplicates
+  filter(!duplicated(ID)) %>%
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>% 
+  # etrahierte zähne = nein
+  filter(is.na(extrahierte_zahne)) -> dp
+
+#filter gender overall
+dp %>% 
+  group_by(gschlecht_m_w) %>% 
+  summarise(tot = n()) %>% 
+  mutate(pct = tot / sum(tot)) %>% 
+  ungroup() %>% 
+  mutate(gender = if_else(gschlecht_m_w == "m", "Männlich", "Weiblich")) %>% 
+  mutate(xlab_1 = paste0("(n = ", tot, ")"),
+         xlab = paste(gender, xlab_1, sep = "\n")) -> dp_s
+
+print(dp_s)
+
+#plot
+pq <- ggplot(data = dp_s, 
+       aes(x = xlab, y = pct, fill = gschlecht_m_w)) +
+  geom_bar(stat = "identity", width = .6) +
+  labs(x = "", y = "Geschlecht in Prozent") +
+  scale_y_continuous(labels = scales::percent) +
+  geom_text(label = scales::percent(dp_s$pct, accuracy = 1), size = 8, position = position_stack(vjust = .5)) +
+  guides(fill = "none") +
+  scale_fill_manual(values = wes_palette("Royal2")) +
+  mytheme
+
+print(pq)
+
+#save:
+ggplot2::ggsave(filename = "output/plots/202207_gender_final_subset.pdf",
+       plot = pq,
+       width = 6,
+       height = 6,
+       dpi = 300,
+       device = cairo_pdf
+)
+
+
+#2. gender and age: MEAN
+dp %>% 
+  group_by(gschlecht_m_w) %>% 
+  summarise(mean = mean(alter_beim_opt, na.rm = TRUE), 
+            sd = sd(alter_beim_opt), #standard deviation
+            se = sd(alter_beim_opt)/sqrt(length(alter_beim_opt))) #standard error of the mean
+
+#3. missing teeth overall (n = 39)
+dp %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl != 0) -> dp_m
+
+head(dp_m,2)
+
+#export data
+write.csv(dp_m, here::here("output/datasets//202207_clients_hypodontia_overall.csv"))
+
+
+
+```
+
+
+### FF2: Nichtanlage vs. Gesund 
+
+```{r}
+
+#nach geschlecht
+data %>% 
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>%
+  #drop all cases with etrahierte zähne
+  filter(is.na(extrahierte_zahne)) %>% 
+  filter(!duplicated(.$ID)) -> dp_d #duplicated cases are excluded
+
+#summaries per gender and nichtanlage
+dp_d %>% 
+  group_by(gschlecht_m_w, nichtanlage_ja_nein) %>% 
+  summarise(tot = n()) %>% 
+  mutate(pct = tot / sum(tot))  %>%
+  ungroup() -> df
+
+
+#Add text to xlab
+txt <- df %>% 
+  group_by(gschlecht_m_w) %>% 
+  summarise(gender_tot = sum(tot)) %>% 
+  mutate(gender = if_else(gschlecht_m_w == "m", "Männlich", "Weiblich")) %>% 
+  mutate(xlab_1 = paste0("(n = ", gender_tot, ")"),
+         xlab = paste(gender, xlab_1, sep = "\n"))
+
+#merge back
+df_plot <- df %>% 
+  left_join(., txt, by = "gschlecht_m_w")
+  
+print(df)
+
+#plot
+p <- ggplot(df_plot, aes(x = xlab, y = pct, fill = nichtanlage_ja_nein)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs( x = "", y = "Anzahl Klienten in Prozent") + #title ok like this?
+  guides(fill = guide_legend(title = "Nichtanlage")) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = wes_palette("Royal2")) +
+  geom_text(label = scales::percent(df_plot$pct, accuracy = 1), position = position_stack(vjust = .5), size = 8) +
+  mytheme
+
+print(p)
+
+#save
+ggplot2::ggsave(filename = "output/plots/202207_gender_nichtanlage.pdf",
+        plot = p,
+        width = 7,
+        height = 6,
+        device = cairo_pdf)
+
+#do that correlation differ from a random result
+#from results first into a matrix
+xtabs(~ nichtanlage_ja_nein + gschlecht_m_w, data = as.data.frame(dp_d)) -> df_chi #which datas et should be used: with duplicated number or not
+
+chi_sq <- chisq.test(df_chi) # both data sets does not show any assimilation between gender and nichtanlage
+chi_sq
+
+```
+
+
+### FF3 & FF4: missing teeth description
+
+> attention: missing teeth do not correspond with the sample size!
+
+```{r}
+#missing single tooth overall
+data %>% 
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>%
+  #drop all cases with etrahierte zähne
+  filter(is.na(extrahierte_zahne)) %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl > 0) -> dp_d  #exclude all persons without missing teeth
+  
+
+#missing teeth per person
+dp_d %>% 
+  group_by(ID) %>% 
+  summarise(teeth_miss = n()) %>% 
+  ungroup() -> df
+
+
+#aggregate data set from above on idividual level: overall----
+dp_ind <- df %>% 
+  group_by(teeth_miss) %>% 
+  summarise(tot_persons = n()) %>% 
+  ungroup() %>% 
+  mutate(pct = tot_persons / sum(tot_persons))
+
+#attention here are all cases again summed up
+#in other words 39 person have 56 missing teeth
+print(dp_ind)
+
+write.csv(file = "output/datasets/202207_table_missing_teeth_overall.csv", dp_ind)
+
+
+#missing teeth per person: meaning most people misses 1 and 2 teeth
+p <- ggplot(dp_ind, aes(x = as.factor(teeth_miss), y = pct, fill = as.factor(teeth_miss))) +
+  #ev. as stacked bars? however data needs to be re-adjusted
+  geom_bar(stat = "identity", position = position_dodge(), width = .6) +
+  geom_text(label = dp_ind$tot_persons, position = position_stack(vjust = .5), size = 8) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = wes_palette("Royal1")) +
+  labs(y = "Anteil fehlende Zähne in Prozent", x = "Anzahl fehlende Zähne") +
+  guides(fill = "none") +
+  mytheme
+
+print(p)
+
+#save plot
+ggplot2::ggsave(filename = "output/plots/202207_missing_teeth.pdf",
+                device = cairo_pdf,
+                width = 6,
+                height = 6,
+                plot = p)
+
+
+#another table: number of missing tooth buds
+dp_d %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl > 0) %>% 
+  group_by(fehlender_zahn_fdi_quadrant_zahnzahl) %>% 
+  summarise(tot = n()) %>% 
+  #calculate percentage
+  mutate(pct_number_missing = tot / sum(tot) * 100) %>% 
+  ungroup() %>% 
+  #divide by number of persons in data set: 39
+  mutate(pct_ind_hypodontia = tot / 39 * 100) -> df_e
+
+#safe
+write.csv(file = "output/datasets/202207_table_number_missing_tooth.csv", df_e)
+    
+    
+```
+
+
+### FF5: distribution of missing teeth
+```{r, include=TRUE}
+#overall, attention some persons are double
+data %>% 
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>%
+  #drop all cases with etrahierte zähne
+  filter(is.na(extrahierte_zahne)) %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl > 0) %>% 
+  # create new variables
+  mutate(quadrant = stringr::str_sub(fehlender_zahn_fdi_quadrant_zahnzahl, end = 1),
+         position = stringr::str_sub(fehlender_zahn_fdi_quadrant_zahnzahl, start = 2)) %>%
+  group_by(quadrant, position) %>% 
+  summarise(tot = n()) %>% 
+  mutate(pct = tot / sum(tot)) %>% 
+  ungroup() -> dp
+
+print(dp)
+
+#xlab
+txt <- dp %>% 
+  group_by(quadrant) %>% 
+  summarise(tot_q = sum(tot)) %>% 
+  ungroup() %>% 
+  mutate(xlab1 = paste0("n = (", tot_q, ")"))
+
+
+#merge back data
+df_plot <- dp %>% 
+  left_join(., txt, by = "quadrant") %>% 
+  mutate(xlab = paste(quadrant, xlab1, sep = "\n"))
+  
+#plot
+p <- ggplot(df_plot, aes(x = xlab, y = pct, fill = position)) +
+  geom_bar(stat = "identity", width = .6) +
+  scale_y_origin(label = scales::percent) +
+  guides(fill = guide_legend(title = "Position \nfehlende Zähne")) +
+  geom_text(label = scales::percent(dp$pct, accuracy = 1), position = position_stack(vjust = .5), size = 8) +
+  scale_fill_manual(values = wes_palette("Royal1")) +
+  labs(x = "Quadrant", y = "Anteil fehlende Zähne in Prozent") +
+  mytheme
+
+
+print(p)
+
+#save plot
+ggplot2::ggsave(filename = "output/plots/202207_missing_teeth_per_quadrants.pdf",
+                device = cairo_pdf,
+                width = 9,
+                height = 8,
+                plot = p)
+
+```
+
+
+
+### some additional tables
+
+> um keine verzerrungen zu bekommen müsste man mit 56 cases und nicht 39 personen arbeiten!
+> hab nun die 56 als gesamtheit genommen (anstelle die 39 personen)
+
+```{r}
+
+#TODO: @gianna: kiefer und seite jeweils auf Geschlechter unterschiede überprüfen => chi-square test
+
+#overall, attention some persons are double!
+data %>% 
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>%
+  #drop all cases with etrahierte zähne
+  filter(is.na(extrahierte_zahne)) %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl > 0) %>%
+  mutate(quadrant = stringr::str_sub(fehlender_zahn_fdi_quadrant_zahnzahl, 
+                                     end = 1)) %>% 
+  mutate(quadrant = as.numeric(quadrant)) %>%
+  select(ID,gschlecht_m_w, quadrant, fehlender_zahn_fdi_quadrant_zahnzahl)-> df_t
+
+
+
+#table gender and chi-square
+df_t %>% 
+  group_by(gschlecht_m_w) %>% 
+  summarise(tot_g = n()) %>% 
+  mutate(pct = tot_g / sum(tot_g)) -> df
+
+print(df)
+
+write.csv(file = "output/datasets/202207_table_gender_hypodontia.csv", df)
+
+#binomial test!
+binom.test(15, 39) #gender and prevalance of hypodontia do not differ statistically significant
+binom.test(21, 56) #wibliche patienten haben eine höhere prevalence von hypodonie
+
+#further info about binomial test: https://www.statology.org/binomial-test-r/
+
+
+#table unter/oberkiefer--------
+df_t %>% 
+  group_by(ID) %>% 
+  summarise(tot = sum(quadrant)) %>% 
+  ungroup() %>%
+  right_join(., df_t[, c("ID", "quadrant", "gschlecht_m_w")], by = "ID")-> tt
+
+# add new variable "kiefer"
+tt %>% 
+  # mutate(tot = if_else(tot == 3, 2.9, tot)) %>% 
+  #attention order plays an important role
+  mutate(kiefer = case_when((tot == 5 | tot == 9 | tot == 10) ~ "beide",
+                            (quadrant == 1 | quadrant == 2) ~ "oben",
+                            (quadrant == 3 | quadrant == 4 | tot == 3) ~ "unten",
+                            TRUE ~ "beide")) ->  df_kiefer 
+
+#one case needs to be change by hand (because sum 1, 3 is 4)
+df_kiefer[df_kiefer$ID == 472,]$kiefer <- "beide"
+
+
+#1. group on teeth level
+df_kiefer %>% 
+  group_by(kiefer, gschlecht_m_w) %>% 
+  summarise(total = n()) %>% 
+  mutate(pct = total / sum(total)) -> df_teeth
+
+print(df_teeth)
+
+# TODO David: Zahlen überprüfen
+write.csv(file = "output/datasets/202207_table_kiefer_teeth_hypodontia.csv", df_teeth)
+
+
+#double check it
+data %>% 
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>%
+  #drop all cases with etrahierte zähne
+  filter(is.na(extrahierte_zahne)) %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl > 0) %>%
+  #change some cases: o, o to o; u,u to u, o, u to beide
+  mutate(oben_unten = str_replace(oben_unten, "o, o", "o")) %>%
+  mutate(oben_unten = str_replace(oben_unten, "u, u", "u")) %>% 
+  mutate(oben_unten = str_replace(oben_unten, "o, u", "beide")) %>%
+  # filter(!is.na(oben_unten)) %>% 
+  group_by(oben_unten, gschlecht_m_w) %>% 
+  summarise(total = n()) %>%
+  mutate(pct = total / sum(total))-> df_test
+
+#prepare data for chi_sq
+xtabs(~ kiefer + gschlecht_m_w, data = df_kiefer) -> df_chisq
+
+#chisquare test 
+chisq.test(df_chisq) # no significance
+
+#2. group on a individual level
+df_kiefer %>% 
+  #drop dups
+  filter(!duplicated(ID)) %>%
+  group_by(kiefer, gschlecht_m_w) %>% 
+  summarise(total = n()) %>% 
+  mutate(pct = total / sum(total)) -> df_ind
+
+print(df_ind)
+
+# TODO David: Zahlen überprüfen
+write.csv(file = "output/datasets/202207_table_kiefer_individual_hypodontia.csv", df_ind)
+
+
+#double check it: seems to fit!
+data %>% 
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>%
+  #drop all cases with etrahierte zähne
+  filter(is.na(extrahierte_zahne)) %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl > 0) %>%
+  filter(!duplicated(ID)) %>%
+  #change some cases: o, o to o; u,u to u, o, u to beide
+  mutate(oben_unten = str_replace(oben_unten, "o, o", "o")) %>%
+  mutate(oben_unten = str_replace(oben_unten, "u, u", "u")) %>% 
+  mutate(oben_unten = str_replace(oben_unten, "o, u", "beide")) %>%
+  # filter(!is.na(oben_unten)) %>% 
+  group_by(oben_unten, gschlecht_m_w) %>% 
+  summarise(total = n()) %>%
+  mutate(pct = total / sum(total))-> ttt
+
+
+
+#table links - rechts-----------
+# df_t %>% 
+#   mutate(quadrant = stringr::str_sub(fehlender_zahn_fdi_quadrant_zahnzahl, end = 1)) %>% 
+#   mutate(quadrant = as.numeric(quadrant)) %>% 
+#   group_by(ID) %>% 
+#   summarise(tot = sum(quadrant)) %>% 
+#   ungroup() %>% 
+#   mutate(tot = if_else(tot == 3, 2.5, tot)) %>% #weil summe beider seiten 5 ergeben
+#   mutate(seite = case_when((tot == 5 | tot == 1 | tot == 4) ~ "rechts",
+#                             (tot == 4.5 | tot == 2 | tot == 2.5) ~ "links",
+#                             TRUE ~ "beide")) ->  df_seite 
+# 
+# #some cases need to be changes manually
+# df_seite[df_seite$ID == 67, ]$seite <- "beide" #sum = 3
+# df_seite[df_seite$ID == 185, ]$seite <- "beide" #sum = 3
+# df_seite[df_seite$ID == 243, ]$seite <- "beide" #sum = 3
+# df_seite[df_seite$ID == 419, ]$seite <- "beide" #sum = 3
+# df_seite[df_seite$ID == 472, ]$seite <- "beide" #sum = 4
+# df_seite[df_seite$ID == 480, ]$seite <- "beide" #sum = 3
+# df_seite[df_seite$ID == 508, ]$seite <- "beide" #sum = 3
+
+
+# #group again
+# df_seite %>% 
+#   group_by(seite) %>% 
+#   summarise(tot = n()) %>% 
+#   mutate(pct = tot / sum(tot)) -> df
+# 
+# print(df)
+
+
+#1. individual level: prepare data
+data %>% 
+  #age older than 9
+  filter(alter_beim_opt >= 9) %>%
+  #drop all cases with etrahierte zähne
+  filter(is.na(extrahierte_zahne)) %>% 
+  filter(fehlender_zahn_fdi_quadrant_zahnzahl > 0) %>%
+  #drop dupls
+  filter(!duplicated(ID)) %>%
+  #change some cases
+  mutate(links_rechts = str_replace(links_rechts, "l, l", "l")) %>%
+  mutate(links_rechts = str_replace(links_rechts, "r, l", "beide")) %>%
+  select(ID, gschlecht_m_w, links_rechts, fehlender_zahn_fdi_quadrant_zahnzahl) -> df
+
+
+#group data
+df %>%
+  group_by(links_rechts, gschlecht_m_w) %>% 
+  summarise(total = n()) %>%
+  mutate(pct = total / sum(total)) -> df_ind
+
+
+# TODO David: Zahlen überprüfen
+write.csv(file = "output/datasets/202207_table_seite_individual_hypodontia.csv", df_ind)
+
+#prepare data for chi_square
+xtabs(~ links_rechts + gschlecht_m_w, data = df) -> df_chisq
+
+chisq.test(df_chisq) # nicht signifikant
+
+
+
+```
+
